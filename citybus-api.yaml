@@ -1,0 +1,506 @@
+openapi: 3.0.3
+info:
+  title: CityBus.gr REST API
+  description: |
+    Undocumented API powering real-time and schedule data for 28+ Greek urban bus operators.
+    Developed by [e-analysis](https://www.e-analysis.eu/) (Larissa, Greece).
+  version: "1.0"
+  contact:
+    name: e-analysis
+    url: https://www.e-analysis.eu/
+
+servers:
+  - url: https://rest.citybus.gr/api/v1/{lang}/{cityId}
+    variables:
+      lang:
+        default: en
+        enum: [en, el]
+        description: Response language
+      cityId:
+        default: "118"
+        description: |
+          Numeric city identifier. Known IDs:
+          101=Corfu, 102=Larisa, 103=Volos, 104=Xanthi, 105=Komotini,
+          106=Ioannina, 107=Alexandroupoli, 109=Mesologgi, 110=Irakleio,
+          112=Patra, 113=Salamina, 114=Lamia, 115=Kastoria, 116=Naousa,
+          117=Serres, 118=Katerini, 120=Chania, 121=Kozani, 122=Mitilini,
+          123=Kavala, 125=Arta, 127=Chios, 128=Ptolemaida, 129=Veroia,
+          130=Agrinio, 133=Chalkida, 134=Drama, 135=Skiathos
+
+security:
+  - bearerAuth: []
+
+paths:
+  /stops:
+    get:
+      summary: Get all stops
+      description: Returns all stops for the city with coordinates and associated line/route codes.
+      operationId: getStops
+      responses:
+        "200":
+          description: Array of stops
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Stop"
+
+  /lines:
+    get:
+      summary: Get all lines
+      description: Returns all lines (equivalent to GTFS routes) with their sub-routes.
+      operationId: getLines
+      responses:
+        "200":
+          description: Array of lines
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Line"
+
+  /lines/{lineCode}:
+    get:
+      summary: Get line detail
+      description: Returns a single line with its routes.
+      operationId: getLine
+      parameters:
+        - $ref: "#/components/parameters/lineCode"
+      responses:
+        "200":
+          description: Line detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Line"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /routes:
+    get:
+      summary: Get all routes
+      description: Returns a flat list of all routes (without stop sequences or shapes).
+      operationId: getRoutes
+      responses:
+        "200":
+          description: Array of routes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RouteSimple"
+
+  /routes/{routeCode}:
+    get:
+      summary: Get route detail
+      description: |
+        Returns full route detail including ordered stop sequence and shape polyline points.
+        This is the key endpoint for building GTFS stop sequences and shapes.
+      operationId: getRouteDetail
+      parameters:
+        - $ref: "#/components/parameters/routeCode"
+      responses:
+        "200":
+          description: Route with stops, shapes, and agency info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouteDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /trips/route/{routeCode}:
+    get:
+      summary: Get all trips for a route
+      description: |
+        Returns per-stop arrival times for all trips on a route, grouped by day of week.
+        Each trip consists of N entries (one per stop in sequence) with the same `id`.
+        Day numbering: 0 = Sunday, 1 = Monday, ..., 5 = Friday. Saturday may be absent.
+      operationId: getTripsByRoute
+      parameters:
+        - $ref: "#/components/parameters/routeCode"
+      responses:
+        "200":
+          description: Array of trip-stop entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TripStopEntry"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /trips/stop/{stopCode}/day/{dayNum}:
+    get:
+      summary: Get departures from a stop
+      description: |
+        Returns all departures from a specific stop on a given day of week.
+        Day numbering: 0 = Sunday, 1 = Monday, ..., 6 = Saturday. Day 7 returns 400.
+      operationId: getTripsByStop
+      parameters:
+        - $ref: "#/components/parameters/stopCode"
+        - name: dayNum
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 6
+          description: "Day of week: 0=Sunday, 1=Monday, ..., 6=Saturday"
+      responses:
+        "200":
+          description: Array of departures
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TripStopEntry"
+        "400":
+          description: Invalid day number
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Long-lived JWT token. Obtain from browser DevTools on any {subdomain}.citybus.gr site.
+        Also requires Origin and Referer headers matching the city subdomain.
+
+  parameters:
+    lineCode:
+      name: lineCode
+      in: path
+      required: true
+      schema:
+        type: string
+      description: "Line code (e.g. '01', '09', '91')"
+      example: "01"
+
+    routeCode:
+      name: routeCode
+      in: path
+      required: true
+      schema:
+        type: string
+      description: "Route code (e.g. '0101-0', '0903')"
+      example: "0101-0"
+
+    stopCode:
+      name: stopCode
+      in: path
+      required: true
+      schema:
+        type: string
+      description: "Stop code (e.g. '000019')"
+      example: "000019"
+
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+
+  schemas:
+    Stop:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 11458248
+        code:
+          type: string
+          example: "000019"
+        name:
+          type: string
+          example: "EFKARPIDI"
+        latitude:
+          type: number
+          format: double
+          example: 40.2697867
+        longitude:
+          type: number
+          format: double
+          example: 22.510113
+        lineCodes:
+          type: array
+          items:
+            type: string
+          example: ["01", "02", "05", "09"]
+          nullable: true
+        routeCodes:
+          type: array
+          items:
+            type: string
+          example: ["0115-0", "0121-0", "0513-0"]
+          nullable: true
+        distance:
+          type: number
+          description: Distance from search point (0 when not searching by proximity)
+          example: 0
+
+    Line:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 485847
+        code:
+          type: string
+          example: "01"
+        name:
+          type: string
+          example: "SVORONOS-KALLITHEA-PARALIA"
+        color:
+          type: string
+          description: Hex color with # prefix
+          example: "#787878"
+        textColor:
+          type: string
+          example: "#ffffff"
+        borderColor:
+          type: string
+          example: "#646464"
+        routes:
+          type: array
+          items:
+            $ref: "#/components/schemas/RouteRef"
+
+    RouteRef:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1615101
+        code:
+          type: string
+          example: "0101-0"
+        name:
+          type: string
+          example: "RIGHT SIDE BEACH - KALLITHEA - THEIA ANALIPSI"
+        direction:
+          type: integer
+          description: "Direction indicator (1 or 2)"
+          example: 2
+
+    RouteSimple:
+      type: object
+      properties:
+        id:
+          type: integer
+        code:
+          type: string
+        name:
+          type: string
+        direction:
+          type: integer
+        lines:
+          type: string
+          description: Appears to always be empty string
+
+    RouteDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+        code:
+          type: string
+          example: "0101-0"
+        name:
+          type: string
+        direction:
+          type: integer
+        agency:
+          $ref: "#/components/schemas/Agency"
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/LineRef"
+        stops:
+          type: array
+          description: Stops in order of visit along the route
+          items:
+            $ref: "#/components/schemas/RouteStop"
+        points:
+          type: array
+          description: Dense polyline points for map rendering (shape geometry)
+          items:
+            $ref: "#/components/schemas/ShapePoint"
+
+    Agency:
+      type: object
+      properties:
+        code:
+          type: integer
+          description: City ID
+          example: 118
+        subdomain:
+          type: string
+          example: "katerini"
+        name:
+          type: string
+          example: "Αστικό Κατερίνης"
+        companyUrl:
+          type: string
+          example: "http://www.astika-katerinis.gr"
+        companyPhone:
+          type: string
+          example: "23510 46800"
+        companyMail:
+          type: string
+        companyAddress:
+          type: string
+          example: "4ο χλμ Κατερίνης-Παραλίας, 60134, Κατερίνη"
+        themeBaseColor:
+          type: string
+          example: "#2273BA"
+        placesBoundsSWLongitude:
+          type: string
+          example: "22.111238"
+        placesBoundsSWLatitude:
+          type: string
+          example: "40.084855"
+        placesBoundsNELongitude:
+          type: string
+          example: "22.683080"
+        placesBoundsNELatitude:
+          type: string
+          example: "40.579395"
+
+    LineRef:
+      type: object
+      properties:
+        id:
+          type: integer
+        code:
+          type: string
+        name:
+          type: string
+        color:
+          type: string
+        textColor:
+          type: string
+        borderColor:
+          type: string
+
+    RouteStop:
+      type: object
+      properties:
+        id:
+          type: integer
+        code:
+          type: string
+          example: "001506"
+        name:
+          type: string
+          example: "LA VITA"
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        lineCodes:
+          type: array
+          items:
+            type: string
+          nullable: true
+          description: Always null in route detail context
+        routeCodes:
+          type: array
+          items:
+            type: string
+          nullable: true
+          description: Always null in route detail context
+        distance:
+          type: number
+        sequence:
+          type: integer
+          description: 1-based stop order along the route
+          example: 1
+
+    ShapePoint:
+      type: object
+      properties:
+        id:
+          type: integer
+        sequence:
+          type: integer
+          description: 1-based point order
+        longitude:
+          type: string
+          description: Longitude as string (needs parsing to float)
+          example: "22.595224"
+        latitude:
+          type: string
+          description: Latitude as string (needs parsing to float)
+          example: "40.262616"
+
+    TripStopEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Groups entries belonging to the same trip
+          example: 55852987
+        day:
+          type: integer
+          description: "Day of week (0=Sunday, 1=Monday, ...)"
+          example: 1
+        routeCode:
+          type: string
+          example: "0101-0"
+        routeName:
+          type: string
+          example: "RIGHT SIDE BEACH - KALLITHEA - THEIA ANALIPSI"
+        lineCode:
+          type: string
+          example: "01"
+        lineName:
+          type: string
+          example: "SVORONOS-KALLITHEA-PARALIA"
+        lineColor:
+          type: string
+          example: "#787878"
+        lineTextColor:
+          type: string
+          example: "#ffffff"
+        stopCode:
+          type: string
+          example: "001506"
+        stopName:
+          type: string
+          example: "LA VITA"
+        tripTime:
+          type: string
+          description: "HH:MM format"
+          example: "07:20"
+        tripTimeHour:
+          type: integer
+          example: 7
+        tripTimeMinute:
+          type: integer
+          example: 20
+
+    ProblemDetails:
+      type: object
+      properties:
+        type:
+          type: string
+          example: "https://tools.ietf.org/html/rfc7231#section-6.5.4"
+        title:
+          type: string
+          example: "Not Found"
+        status:
+          type: integer
+          example: 404
+        traceId:
+          type: string
