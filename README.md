@@ -2,6 +2,10 @@
 
 Generates [GTFS](https://gtfs.org/) feeds from the [CityBus.gr](https://citybus.gr) REST API, covering 26 Greek urban bus operators.
 
+## API Documentation
+
+Interactive API docs: https://martinlangbecker.github.io/citybus-gtfs-generator/
+
 ## Usage
 
 ```bash
